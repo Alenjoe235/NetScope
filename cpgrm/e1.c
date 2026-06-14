@@ -1,3 +1,4 @@
+//this program is for capturing packets using raw sockets in C. It creates a raw socket that listens to all packets on the network interface and prints the first 14 bytes of each captured packet, which corresponds to the Ethernet header. The program runs indefinitely until manually terminated, and it counts the number of packets captured.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
