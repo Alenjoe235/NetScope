@@ -17,7 +17,7 @@ def generate_real_packets():
         stderr=subprocess.PIPE,
         text=True
     )
-
+//made changes to the above line to run the sniffer executable in the same directory as the server.py file.
     try:
         # 2. Read the C program's output line by line forever
         for line in iter(process.stdout.readline, ''):
