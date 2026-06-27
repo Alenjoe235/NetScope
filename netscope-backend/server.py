@@ -1,59 +1,68 @@
-from flask import Flask, Response
-from flask_cors import CORS
 import subprocess
 import json
 import time
 import random
+from flask import Flask, Response
 
 app = Flask(__name__)
-CORS(app) 
 
-def generate_real_packets():
-    # 1. Launch the compiled C executable
-    # It inherits root privileges from the Python script
+@app.after_request
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    return response
+
+def generate_packet_stream():
+    # Spawns your compiled C sniffer binary as a root subprocess.
+    # Ensure your C binary is compiled with: gcc sniffer.c -o sniffer
     process = subprocess.Popen(
-        ['./sniffer'], 
-        stdout=subprocess.PIPE,
+        ['sudo', './sniffer'], 
+        stdout=subprocess.PIPE, 
         stderr=subprocess.PIPE,
         text=True
     )
-//made changes to the above line to run the sniffer executable in the same directory as the server.py file.
+
     try:
-        # 2. Read the C program's output line by line forever
-        for line in iter(process.stdout.readline, ''):
+        while True:
+            line = process.stdout.readline()
             if not line:
-                continue
+                break
             
             try:
-                # 3. Parse the JSON string printed by C
+                # Safely parse the strict JSON output directly from the C executable
                 c_data = json.loads(line.strip())
                 
-                # 4. Map the C format to the format React expects
+                app_proto = c_data.get("app")
+                layer4 = c_data.get("layer4")
+                
+                # Transform the data schema into the precise keys expected by React
                 react_packet = {
                     "id": ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=9)),
                     "timestamp": time.strftime("%H:%M:%S"),
                     "source": c_data.get("src_ip", "Unknown"),
                     "destination": c_data.get("dst_ip", "Unknown"),
-                    # If it's standard TCP/UDP, use that. If DNS or HTTP, use the app protocol for cooler badges!
-                    "protocol": c_data.get("app") if c_data.get("app") not in ["TCP_OTHER", "UDP_OTHER"] else c_data.get("layer4"),
+                    "protocol": app_proto if app_proto not in ["TCP_OTHER", "TCP_CTRL", "UDP_OTHER"] else layer4,
                     "size": c_data.get("payload_bytes", 0),
-                    "info": f"Src Port: {c_data.get('src_port')} -> Dst Port: {c_data.get('dst_port')}"
+                    "info": f"Src Port: {c_data.get('src_port')} -> Dst Port: {c_data.get('dst_port')}",
+                    
+                    # Week 4 Layer 7 Deep Inspection Fields
+                    "http_method": c_data.get("http_method", ""),
+                    "dns_query": c_data.get("dns_query", ""),
+                    "smtp_cmd": c_data.get("smtp_cmd", "")
                 }
                 
-                # 5. Send to React!
+                # Stream the formatted packet over HTTP SSE protocol
                 yield f"data: {json.dumps(react_packet)}\n\n"
                 
             except json.JSONDecodeError:
-                # If C prints a non-JSON error or debug message, ignore it
+                # Catch any system string anomalies or sudo authentication text safely
                 continue
     finally:
-        # If the browser disconnects, kill the C process to prevent memory leaks
         process.terminate()
 
 @app.route('/stream')
 def stream():
-    return Response(generate_real_packets(), mimetype='text/event-stream')
+    return Response(generate_packet_stream(), mimetype='text/event-stream')
 
 if __name__ == '__main__':
-    print("Starting LIVE NetScope Backend on http://localhost:5000...")
-    app.run(port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True)

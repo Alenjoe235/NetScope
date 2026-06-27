@@ -22,13 +22,14 @@ import { Shield, Activity, HardDrive, Search } from 'lucide-react';
 
 //   }
 
-
 export default function App(){
   //react app is checking for changes in 'packets' variable. If it changes, React re-runs this entire App() function.
   const [packets, setPackets] = useState(initialPackets);
-   const [isPaused, setIsPaused] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [filterText , setFilterText] = useState("");
-
+  
+  // NEW: State to track lifetime counts independently from the 50-packet array limits
+  const [lifetimeCounts, setLifetimeCounts] = useState({ total: 0, tcp: 0, udp: 0 });
 
   // useEffect(() =>{
   //   if(isPaused) return;
@@ -42,18 +43,36 @@ export default function App(){
   //   return () => clearInterval(IntervalID);
 
   // },[isPaused]);
+  
   useEffect(() =>{
     if(isPaused) return;
     const eventSource = new EventSource('http://localhost:5000/stream');
+    
     eventSource.onmessage = (event) =>{
        const newPacket = JSON.parse(event.data);
+       
+       // Keep the sliding window for the table so the browser doesn't crash
        setPackets((prevPackets) => [...prevPackets.slice(-49), newPacket]);
+       
+       // NEW: Increment the lifetime counters for the stat cards
+       setLifetimeCounts((prev) => {
+         const isTcp = newPacket.protocol.includes("TCP") || ["HTTP", "SMTP"].includes(newPacket.protocol);
+         const isUdp = newPacket.protocol.includes("UDP") || newPacket.protocol === "DNS";
+
+         return {
+           total: prev.total + 1,
+           tcp: prev.tcp + (isTcp ? 1 : 0),
+           udp: prev.udp + (isUdp ? 1 : 0)
+         };
+       });
     };
+    
     //handling the errors that might occur while connecting to the server
     eventSource.onerror = (err) =>{
       console.error("EventSource failed:", err);
       eventSource.close();
     }
+    
     // clean up fucntion is used when the connnection componenet is unmounted or when the dependencies change. It ensures that we don't have multiple open connections or memory leaks.
     return () =>{
       eventSource.close();
@@ -65,10 +84,10 @@ export default function App(){
     p.source.includes(filterText) || p.protocol.toLowerCase().includes(filterText.toLowerCase())
   );
 
-  // Every time 'packets' changes, React re-runs this entire App() function.
-  const totalPackets = packets.length;
-  const tcpCount = packets.filter(p => p.protocol.includes("TCP")).length;
-  const udpCount = packets.filter(p => p.protocol.includes("UDP")).length;
+  // NEW: Read from the new lifetime state instead of the array length
+  const totalPackets = lifetimeCounts.total;
+  const tcpCount = lifetimeCounts.tcp;
+  const udpCount = lifetimeCounts.udp;
 
   return (
     <div>
@@ -89,7 +108,6 @@ export default function App(){
         <StatCard title="Total Packets" value={totalPackets} /> 
         <StatCard title="TCP Packets" value={tcpCount} colorClass="badge-tcp" />
         <StatCard title="UDP Packets" value={udpCount} colorClass="badge-udp" />
-        <button className='toggle-switch' onClick={()=>setIsPaused(!isPaused)}>{isPaused ? "Resume" : "Pause"}</button>
       </div>
       <div>
         <div className="filter-container">
@@ -112,7 +130,4 @@ export default function App(){
       </div>
     </div>
   )
-
-
-
 }
