@@ -10,12 +10,57 @@
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
 #include <ctype.h>
+#include <time.h>
+
+// --- WEEK 6: HASH MAP CONFIGURATION ---
+#define TABLE_SIZE 1024
+
+typedef struct {
+    char ip[16];
+    int count;
+} HashNode;
+
+HashNode ip_table[TABLE_SIZE]; // Our fixed-size memory dictionary
+
+// The DJB2 String Hashing Algorithm Daniel J Bernstein is the author of this algorithm. It is a simple and effective hash function for strings.
+unsigned long hash_ip(char *ip) {
+    unsigned long hash = 5381;
+    int c;
+    while ((c = *ip++)) {
+        hash = ((hash << 5) + hash) + c; 
+    }
+    return hash % TABLE_SIZE;
+}
+
+// Map the IP to a bucket and increment the counter
+void track_ip(char *ip) {
+    unsigned long idx = hash_ip(ip);
+    int start_idx = idx;
+
+    // Linear Probing for Collision Resolution
+    while (ip_table[idx].count > 0) {
+        if (strcmp(ip_table[idx].ip, ip) == 0) {
+            ip_table[idx].count++; // IP found, increment
+            return;
+        }
+        idx = (idx + 1) % TABLE_SIZE; // Slot taken by someone else, move right
+        if (idx == start_idx) return; // Table is perfectly full (failsafe)
+    }
+
+    // Found an empty bucket, initialize new IP
+    strcpy(ip_table[idx].ip, ip);
+    ip_table[idx].count = 1;
+}
 
 int main(){
 
     unsigned char buffer[65536];
     int raw_socket = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
     if(raw_socket < 0) return 1;
+
+    // Initialize our timer and zero out the hash map
+    time_t last_report_time = time(NULL);
+    memset(ip_table, 0, sizeof(ip_table));
 
     while(1){
         int data_size = recvfrom(raw_socket, buffer, sizeof(buffer), 0, NULL, NULL);
@@ -115,9 +160,51 @@ int main(){
             printf("{\"layer4\": \"%s\", \"src_ip\": \"%s\", \"src_port\": %d, \"dst_ip\": \"%s\", \"dst_port\": %d, \"app\": \"%s\", \"payload_bytes\": %d, \"http_method\": \"%s\", \"dns_query\": \"%s\", \"smtp_cmd\": \"%s\"}\n", 
                    layer4, src_ip, src_port, dst_ip, dst_port, app, payload_bytes, http_method, dns_query, smtp_cmd);
             fflush(stdout);
+            // --- WEEK 6: RECORD IP AND FLUSH EVERY 5 SECONDS ---
+            track_ip(src_ip);
+
+            time_t current_time = time(NULL);
+            if (current_time - last_report_time >= 5) {
+                
+                // 1. Sort to find the Top 5 talkers
+                HashNode top5[5] = {0};
+                for (int i = 0; i < TABLE_SIZE; i++) {
+                    if (ip_table[i].count > 0) {
+                        for (int j = 0; j < 5; j++) {
+                            if (ip_table[i].count > top5[j].count) {
+                                for (int k = 4; k > j; k--) {
+                                    top5[k] = top5[k-1]; // Shift array down
+                                }
+                                top5[j] = ip_table[i];
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // 2. Emit the Top Talkers JSON payload
+                printf("{\"type\": \"TOP_TALKERS\", \"data\": [");
+                int first = 1;
+                for (int j = 0; j < 5; j++) {
+                    if (top5[j].count > 0) {
+                        if (!first) printf(", ");
+                        printf("{\"ip\": \"%s\", \"count\": %d}", top5[j].ip, top5[j].count);
+                        first = 0;
+                    }
+                }
+                printf("]}\n");
+                fflush(stdout);
+
+                // 3. Reset the timer and zero the hash map
+                memset(ip_table, 0, sizeof(ip_table));
+                last_report_time = current_time;
+            }
+        
         }
             }
         }
+
+
     
     close(raw_socket);
     return 0;

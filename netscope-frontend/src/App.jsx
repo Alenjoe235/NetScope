@@ -5,6 +5,7 @@ import ProtocolCharts from './components/ProtocolCharts';
 import { initialPackets } from './mockdata';
 import PPSChart from './components/PPSChart'; // NEW: Import the line chart
 import { Shield, Activity, HardDrive, Search } from 'lucide-react';
+import TopTalkersChart from './components/TopTalkersChart';
 
 // const GenerateRandomPackets = () => { the fucntion has been replaced by the server side code 
 
@@ -28,6 +29,9 @@ export default function App(){
   const [packets, setPackets] = useState(initialPackets);
   const [isPaused, setIsPaused] = useState(false);
   const [filterText , setFilterText] = useState("");
+
+  //to the newly toptakers data from the server
+  const [topTalkers, setTopTalkers] = useState([]);
  // State to track lifetime counts independently from the 50-packet array limits
   const [lifetimeCounts, setLifetimeCounts] = useState({ total: 0, tcp: 0, udp: 0 });
 
@@ -76,6 +80,13 @@ export default function App(){
     
     eventSource.onmessage = (event) =>{
        const newPacket = JSON.parse(event.data);
+
+       // --- WEEK 6: CATCH THE BURST ---
+       if (newPacket.type === "TOP_TALKERS") {
+           setTopTalkers(newPacket.data);
+           return; // Stop here, do not add to the packet table
+       }
+       // ------------------------------- 
 
        // Increment the silent 1-second counter for the line chart
        currentSecondCount.current += 1;
@@ -150,6 +161,7 @@ export default function App(){
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px', marginBottom: '20px' }}>
           
           <PPSChart data={ppsHistory} />
+           <TopTalkersChart data={topTalkers} />
         </div>
          <button className='toggle-switch'
           onClick={() => setIsPaused(!isPaused)}
@@ -161,6 +173,7 @@ export default function App(){
          {/*//PacketTable is a child component that receives 'packets' as a prop. Whenever 'packets' changes, PacketTable will also re-render to reflect the new data.*/}
         <ProtocolCharts packets={filteredPackets} />
         <PacketTable packets={filteredPackets} />
+       
         </div>
       </div>
     </div>

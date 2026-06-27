@@ -31,6 +31,12 @@ def generate_packet_stream():
             try:
                 # Safely parse the strict JSON output directly from the C executable
                 c_data = json.loads(line.strip())
+
+                # --- WEEK 6: ROUTE THE TOP TALKERS BURST ---
+                if c_data.get("type") == "TOP_TALKERS":
+                    yield f"data: {json.dumps(c_data)}\n\n"
+                    continue # Skip the rest of the packet logic
+                # -------------------------------------------
                 
                 app_proto = c_data.get("app")
                 layer4 = c_data.get("layer4")
